@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/application/boardservice.ts","./src/domain/board.ts","./src/infrastructure/httpboardrepository.ts","./src/presentation/boardpage.tsx","./src/presentation/confirmationmodal.tsx","./src/presentation/useboardcontroller.ts"],"version":"5.9.3"}
