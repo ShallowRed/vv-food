@@ -29,13 +29,15 @@ database.run(`
   );
 `);
 database.run(`
-  CREATE TABLE IF NOT EXISTS grocery_items (
+  CREATE TABLE IF NOT EXISTS ingredients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    meal_id INTEGER NOT NULL,
     label TEXT NOT NULL,
     quantity TEXT NOT NULL,
-    assigned_to TEXT NOT NULL,
+    provenance TEXT NOT NULL,
     done INTEGER NOT NULL DEFAULT 0,
-    archived INTEGER NOT NULL DEFAULT 0
+    archived INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (meal_id) REFERENCES meals(id)
   );
 `);
 
@@ -43,32 +45,40 @@ database.run(`
 try {
   database.run('ALTER TABLE meals ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
 } catch {}
-try {
-  database.run('ALTER TABLE grocery_items ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
-} catch {}
 database.run(`
   CREATE TABLE IF NOT EXISTS participants (
     position INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE
   );
 `);
+database.run(`
+  CREATE TABLE IF NOT EXISTS provenances (
+    position INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+  );
+`);
+
+const STAY_DAY = 'Séjour';
 
 const seedMeals = [
+  [STAY_DAY, 'Petit-déj', 'Petit-déj partagé', 'Pain, fruits, café, confiture pour tout le séjour.', 'Agathe'],
   ['Vendredi', 'Dîner', 'Pâtes faciles + salade', 'Entrée en douceur, zéro cerveau.', 'Louis'],
-  ['Samedi', 'Petit-déj', 'Petit-déj partagé', 'Pain, fruits, café, confiture.', 'Agathe'],
   ['Samedi', 'Déj', 'Pique-nique', 'Taboulé, quiches, restes utiles.', 'Marie'],
+  ['Samedi', 'Apéro', 'Apéro terrasse', 'Chips, olives, quelques planches.', 'Margaux'],
   ['Samedi', 'Dîner', 'BBQ / moules-frites', 'Plan A barbecue, plan B convivial.', 'Groupe'],
-  ['Dimanche', 'Petit-déj', 'Brunch anti-gaspi', 'Finir ce qui reste sans effort.', 'Joffrey'],
 ];
 
-const seedItems = [
-  ['Charbon', '1 sac', 'Louis', 0],
-  ['Pâtes', '2 paquets', 'Marie', 0],
-  ['Tomates', '6', 'Agathe', 1],
-  ['Fromage râpé', '1 sachet', 'Joffrey', 0],
+// Ingrédients de démo, indexés sur la position du repas dans seedMeals.
+const seedIngredients = [
+  [0, 'Pain', '4 baguettes', 'Marché sur place', 0],
+  [0, 'Café', '1 paquet', 'Grande surface', 0],
+  [0, 'Confiture', '2 pots', 'Ramené de Paris', 1],
+  [1, 'Pâtes', '2 paquets', 'Grande surface', 0],
+  [3, 'Charbon', '1 sac', 'Grande surface', 0],
 ];
 
 const seedParticipants = ['Marie', 'Louis', 'Agathe', 'Joffrey', 'Margaux'];
+const seedProvenances = ['Grande surface', 'Marché sur place', 'Ramené de Paris'];
 
 function persist() {
   writeFileSync(dbPath, Buffer.from(database.export()));
@@ -82,20 +92,32 @@ function tableHasRows(tableName) {
 }
 
 if (!tableHasRows('meals')) {
-  const stmt = database.prepare('INSERT INTO meals (day, slot, title, note, owner) VALUES (?, ?, ?, ?, ?)');
-  seedMeals.forEach((row) => stmt.run(row));
-  stmt.free();
-}
+  const mealStmt = database.prepare('INSERT INTO meals (day, slot, title, note, owner) VALUES (?, ?, ?, ?, ?)');
+  const mealIds = [];
+  seedMeals.forEach((row) => {
+    mealStmt.run(row);
+    mealIds.push(Number(one('SELECT last_insert_rowid() AS id')?.id));
+  });
+  mealStmt.free();
 
-if (!tableHasRows('grocery_items')) {
-  const stmt = database.prepare('INSERT INTO grocery_items (label, quantity, assigned_to, done) VALUES (?, ?, ?, ?)');
-  seedItems.forEach((row) => stmt.run(row));
-  stmt.free();
+  const ingredientStmt = database.prepare(
+    'INSERT INTO ingredients (meal_id, label, quantity, provenance, done) VALUES (?, ?, ?, ?, ?)',
+  );
+  seedIngredients.forEach(([mealIndex, label, quantity, provenance, done]) => {
+    ingredientStmt.run([mealIds[mealIndex], label, quantity, provenance, done]);
+  });
+  ingredientStmt.free();
 }
 
 if (!tableHasRows('participants')) {
   const stmt = database.prepare('INSERT INTO participants (name) VALUES (?)');
   seedParticipants.forEach((name) => stmt.run([name]));
+  stmt.free();
+}
+
+if (!tableHasRows('provenances')) {
+  const stmt = database.prepare('INSERT INTO provenances (name) VALUES (?)');
+  seedProvenances.forEach((name) => stmt.run([name]));
   stmt.free();
 }
 
@@ -129,34 +151,54 @@ function mealFromRow(row) {
   };
 }
 
-function groceryFromRow(row) {
+function ingredientFromRow(row) {
   return {
     id: Number(row.id),
+    mealId: Number(row.meal_id),
     label: String(row.label),
     quantity: String(row.quantity),
-    assignedTo: String(row.assigned_to),
+    provenance: String(row.provenance),
     done: Number(row.done) === 1,
   };
+}
+
+function ingredientsForMeal(mealId) {
+  return all(
+    'SELECT id, meal_id, label, quantity, provenance, done FROM ingredients WHERE meal_id = ? AND archived = 0 ORDER BY id ASC',
+    [mealId],
+  ).map(ingredientFromRow);
 }
 
 function participantsFromDb() {
   return all('SELECT name FROM participants ORDER BY position').map((row) => String(row.name));
 }
 
+function provenancesFromDb() {
+  return all('SELECT name FROM provenances ORDER BY position').map((row) => String(row.name));
+}
+
 function currentState() {
+  const meals = all(
+    'SELECT id, day, slot, title, note, owner FROM meals WHERE archived = 0 ORDER BY id DESC',
+  ).map((row) => {
+    const meal = mealFromRow(row);
+    meal.ingredients = ingredientsForMeal(meal.id);
+    return meal;
+  });
+
   return {
-    meals: all('SELECT id, day, slot, title, note, owner FROM meals WHERE archived = 0 ORDER BY id DESC').map(mealFromRow),
-    items: all('SELECT id, label, quantity, assigned_to, done FROM grocery_items WHERE archived = 0 ORDER BY id DESC').map(groceryFromRow),
+    meals,
     participants: participantsFromDb(),
+    provenances: provenancesFromDb(),
   };
 }
 
-function replaceParticipants(participants) {
+function replaceNamedRows(tableName, values) {
   const names = [];
   const seen = new Set();
 
-  participants.forEach((participant) => {
-    const name = String(participant || '').trim();
+  values.forEach((value) => {
+    const name = String(value || '').trim();
     if (!name || seen.has(name)) {
       return;
     }
@@ -165,12 +207,20 @@ function replaceParticipants(participants) {
     names.push(name);
   });
 
-  database.run('DELETE FROM participants');
-  const stmt = database.prepare('INSERT INTO participants (name) VALUES (?)');
+  database.run(`DELETE FROM ${tableName}`);
+  const stmt = database.prepare(`INSERT INTO ${tableName} (name) VALUES (?)`);
   names.forEach((name) => stmt.run([name]));
   stmt.free();
   persist();
   return names;
+}
+
+function replaceParticipants(participants) {
+  return replaceNamedRows('participants', participants);
+}
+
+function replaceProvenances(provenances) {
+  return replaceNamedRows('provenances', provenances);
 }
 
 function readBody(request) {
@@ -227,16 +277,16 @@ function validateMeal(body) {
   };
 }
 
-function validateItem(body) {
-  const { label, quantity, assignedTo, done } = body;
-  if (!label || !assignedTo) {
-    throw new Error('Les champs courses sont incomplets.');
+function validateIngredient(body) {
+  const { label, quantity, provenance, done } = body;
+  if (!label || !provenance) {
+    throw new Error('Les champs ingrédient sont incomplets.');
   }
 
   return {
     label: String(label),
     quantity: String(quantity || '1'),
-    assignedTo: String(assignedTo),
+    provenance: String(provenance),
     done: Boolean(done),
   };
 }
@@ -274,41 +324,57 @@ function deleteMeal(id) {
   const stmt = database.prepare('UPDATE meals SET archived = 1 WHERE id = ?');
   stmt.run([id]);
   stmt.free();
+  const ingredientStmt = database.prepare('UPDATE ingredients SET archived = 1 WHERE meal_id = ?');
+  ingredientStmt.run([id]);
+  ingredientStmt.free();
   persist();
   return true;
 }
 
-function createItem(body) {
-  const item = validateItem(body);
-  const stmt = database.prepare('INSERT INTO grocery_items (label, quantity, assigned_to, done) VALUES (?, ?, ?, ?)');
-  stmt.run([item.label, item.quantity, item.assignedTo, item.done ? 1 : 0]);
+function createIngredient(mealId, body) {
+  const meal = one('SELECT id FROM meals WHERE id = ? AND archived = 0', [mealId]);
+  if (!meal) {
+    return null;
+  }
+
+  const ingredient = validateIngredient(body);
+  const stmt = database.prepare(
+    'INSERT INTO ingredients (meal_id, label, quantity, provenance, done) VALUES (?, ?, ?, ?, ?)',
+  );
+  stmt.run([mealId, ingredient.label, ingredient.quantity, ingredient.provenance, ingredient.done ? 1 : 0]);
   stmt.free();
   const createdId = Number(one('SELECT last_insert_rowid() AS id')?.id);
   persist();
-  return groceryFromRow(one('SELECT id, label, quantity, assigned_to, done FROM grocery_items WHERE id = ?', [createdId]));
+  return ingredientFromRow(
+    one('SELECT id, meal_id, label, quantity, provenance, done FROM ingredients WHERE id = ?', [createdId]),
+  );
 }
 
-function updateItem(id, body) {
-  const item = validateItem(body);
-  const existing = one('SELECT id FROM grocery_items WHERE id = ?', [id]);
+function updateIngredient(id, body) {
+  const ingredient = validateIngredient(body);
+  const existing = one('SELECT id FROM ingredients WHERE id = ?', [id]);
   if (!existing) {
     return null;
   }
 
-  const stmt = database.prepare('UPDATE grocery_items SET label = ?, quantity = ?, assigned_to = ?, done = ? WHERE id = ?');
-  stmt.run([item.label, item.quantity, item.assignedTo, item.done ? 1 : 0, id]);
+  const stmt = database.prepare(
+    'UPDATE ingredients SET label = ?, quantity = ?, provenance = ?, done = ? WHERE id = ?',
+  );
+  stmt.run([ingredient.label, ingredient.quantity, ingredient.provenance, ingredient.done ? 1 : 0, id]);
   stmt.free();
   persist();
-  return groceryFromRow(one('SELECT id, label, quantity, assigned_to, done FROM grocery_items WHERE id = ?', [id]));
+  return ingredientFromRow(
+    one('SELECT id, meal_id, label, quantity, provenance, done FROM ingredients WHERE id = ?', [id]),
+  );
 }
 
-function deleteItem(id) {
-  const existing = one('SELECT id FROM grocery_items WHERE id = ? AND archived = 0', [id]);
+function deleteIngredient(id) {
+  const existing = one('SELECT id FROM ingredients WHERE id = ? AND archived = 0', [id]);
   if (!existing) {
     return false;
   }
 
-  const stmt = database.prepare('UPDATE grocery_items SET archived = 1 WHERE id = ?');
+  const stmt = database.prepare('UPDATE ingredients SET archived = 1 WHERE id = ?');
   stmt.run([id]);
   stmt.free();
   persist();
@@ -377,8 +443,30 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (pathname === '/api/provenances' && request.method === 'GET') {
+    sendJson(response, 200, provenancesFromDb());
+    return;
+  }
+
+  if (pathname === '/api/provenances' && request.method === 'PUT') {
+    try {
+      const body = await readBody(request);
+      sendJson(response, 200, replaceProvenances(Array.isArray(body) ? body : []));
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : 'Erreur inconnue.' });
+    }
+    return;
+  }
+
   if (pathname === '/api/meals' && request.method === 'GET') {
-    sendJson(response, 200, all('SELECT id, day, slot, title, note, owner FROM meals ORDER BY id DESC').map(mealFromRow));
+    const meals = all('SELECT id, day, slot, title, note, owner FROM meals WHERE archived = 0 ORDER BY id DESC').map(
+      (row) => {
+        const meal = mealFromRow(row);
+        meal.ingredients = ingredientsForMeal(meal.id);
+        return meal;
+      },
+    );
+    sendJson(response, 200, meals);
     return;
   }
 
@@ -428,11 +516,6 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
-  if (pathname === '/api/items' && request.method === 'GET') {
-    sendJson(response, 200, all('SELECT id, label, quantity, assigned_to, done FROM grocery_items ORDER BY id DESC').map(groceryFromRow));
-    return;
-  }
-
   if (pathname === '/api/participants' && request.method === 'PUT') {
     try {
       const body = await readBody(request);
@@ -443,45 +526,52 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
-  if (pathname === '/api/items' && request.method === 'POST') {
+  // Ingrédients rattachés à un repas : POST /api/meals/:id/ingredients
+  const mealIngredientsMatch = pathname.match(/^\/api\/meals\/(\d+)\/ingredients$/);
+  if (mealIngredientsMatch && request.method === 'POST') {
+    const mealId = Number(mealIngredientsMatch[1]);
     try {
-      const item = createItem(await readBody(request));
-      sendJson(response, 201, item);
-    } catch (error) {
-      sendJson(response, 400, { error: error instanceof Error ? error.message : 'Erreur inconnue.' });
-    }
-    return;
-  }
-
-  if (pathname.startsWith('/api/items/') && request.method === 'PUT') {
-    const id = Number(pathname.split('/').pop());
-    if (!Number.isFinite(id)) {
-      sendJson(response, 400, { error: 'Identifiant article invalide.' });
-      return;
-    }
-
-    try {
-      const item = updateItem(id, await readBody(request));
-      if (!item) {
-        sendJson(response, 404, { error: 'Article introuvable.' });
+      const ingredient = createIngredient(mealId, await readBody(request));
+      if (!ingredient) {
+        sendJson(response, 404, { error: 'Repas introuvable.' });
         return;
       }
-      sendJson(response, 200, item);
+      sendJson(response, 201, ingredient);
     } catch (error) {
       sendJson(response, 400, { error: error instanceof Error ? error.message : 'Erreur inconnue.' });
     }
     return;
   }
 
-  if (pathname.startsWith('/api/items/') && request.method === 'DELETE') {
+  if (pathname.startsWith('/api/ingredients/') && request.method === 'PUT') {
     const id = Number(pathname.split('/').pop());
     if (!Number.isFinite(id)) {
-      sendJson(response, 400, { error: 'Identifiant article invalide.' });
+      sendJson(response, 400, { error: 'Identifiant ingrédient invalide.' });
       return;
     }
 
-    if (!deleteItem(id)) {
-      sendJson(response, 404, { error: 'Article introuvable.' });
+    try {
+      const ingredient = updateIngredient(id, await readBody(request));
+      if (!ingredient) {
+        sendJson(response, 404, { error: 'Ingrédient introuvable.' });
+        return;
+      }
+      sendJson(response, 200, ingredient);
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : 'Erreur inconnue.' });
+    }
+    return;
+  }
+
+  if (pathname.startsWith('/api/ingredients/') && request.method === 'DELETE') {
+    const id = Number(pathname.split('/').pop());
+    if (!Number.isFinite(id)) {
+      sendJson(response, 400, { error: 'Identifiant ingrédient invalide.' });
+      return;
+    }
+
+    if (!deleteIngredient(id)) {
+      sendJson(response, 404, { error: 'Ingrédient introuvable.' });
       return;
     }
 

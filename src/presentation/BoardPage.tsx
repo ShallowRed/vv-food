@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useBoardController } from './useBoardController';
 import { ConfirmationModal } from './ConfirmationModal';
+import type { Ingredient, Meal } from '../domain/board';
 
 type ThemeMode = 'dark' | 'light';
-type EditorDrawerMode = 'meal' | 'item' | null;
-type ConfirmAction = 'meal' | 'item' | 'participant' | null;
+type ConfirmAction = 'meal' | 'ingredient' | 'participant' | 'provenance' | null;
 
 interface PendingDelete {
   action: ConfirmAction;
@@ -15,40 +15,48 @@ interface PendingDelete {
 
 export default function BoardPage() {
   const {
-    mealDays,
+    mealDayOptions,
     mealSlots,
-    meals,
-    items,
     participants,
+    provenances,
     mealDraft,
-    itemDraft,
+    ingredientDraft,
     participantDraft,
+    provenanceDraft,
     activeDay,
     setActiveDay,
     editingMealId,
-    editingItemId,
+    editingIngredientId,
     loading,
     syncError,
-    mealCount,
+    stayMeals,
     visibleMeals,
+    provenanceGroups,
     setMealDraft,
-    setItemDraft,
+    setIngredientDraft,
     setParticipantDraft,
+    setProvenanceDraft,
     submitMealForm,
-    submitItemForm,
+    submitIngredientForm,
     submitParticipantForm,
+    submitProvenanceForm,
     updateMeal,
-    updateItem,
+    editIngredient,
+    toggleIngredient,
     removeMeal,
-    removeItem,
+    removeIngredient,
     removeParticipant,
+    removeProvenance,
     resetMealDraft,
-    resetItemDraft,
+    resetIngredientDraft,
     refreshState,
+    mealDays,
   } = useBoardController();
 
-  const [showParticipantsPanel, setShowParticipantsPanel] = useState(false);
-  const [editorDrawerMode, setEditorDrawerMode] = useState<EditorDrawerMode>(null);
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [showMealDrawer, setShowMealDrawer] = useState(false);
+  // Repas dont la sous-liste d'ingrédients est dépliée.
+  const [expandedMealId, setExpandedMealId] = useState<number | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window === 'undefined') {
       return 'dark';
@@ -63,9 +71,9 @@ export default function BoardPage() {
   const mealOwners = selectableParticipants.includes(mealDraft.owner)
     ? selectableParticipants
     : [...selectableParticipants, mealDraft.owner];
-  const itemAssignees = selectableParticipants.includes(itemDraft.assignedTo)
-    ? selectableParticipants
-    : [...selectableParticipants, itemDraft.assignedTo];
+  const ingredientProvenances = provenances.includes(ingredientDraft.provenance)
+    ? provenances
+    : [...provenances, ingredientDraft.provenance];
 
   useEffect(() => {
     document.body.dataset.theme = theme;
@@ -76,88 +84,166 @@ export default function BoardPage() {
     };
   }, [theme]);
 
-  const closeEditorDrawer = () => {
-    if (editorDrawerMode === 'meal') {
-      resetMealDraft();
-    }
-
-    if (editorDrawerMode === 'item') {
-      resetItemDraft();
-    }
-
-    setEditorDrawerMode(null);
+  const closeMealDrawer = () => {
+    resetMealDraft();
+    setShowMealDrawer(false);
   };
 
   const openMealDrawer = () => {
     resetMealDraft();
-    setShowParticipantsPanel(false);
-    setEditorDrawerMode('meal');
-  };
-
-  const openItemDrawer = () => {
-    resetItemDraft();
-    setShowParticipantsPanel(false);
-    setEditorDrawerMode('item');
+    setShowSettingsPanel(false);
+    setShowMealDrawer(true);
   };
 
   const handleMealEdit = (id: number) => {
     updateMeal(id);
-    setShowParticipantsPanel(false);
-    setEditorDrawerMode('meal');
-  };
-
-  const handleItemEdit = (id: number) => {
-    updateItem(id);
-    setShowParticipantsPanel(false);
-    setEditorDrawerMode('item');
+    setShowSettingsPanel(false);
+    setShowMealDrawer(true);
   };
 
   const handleMealSubmit = async () => {
     if (!mealDraft.title.trim()) return;
 
     await submitMealForm();
-    setEditorDrawerMode(null);
+    setShowMealDrawer(false);
   };
 
-  const handleItemSubmit = async () => {
-    if (!itemDraft.label.trim()) return;
+  const toggleExpanded = (mealId: number) => {
+    resetIngredientDraft();
+    setExpandedMealId((current) => (current === mealId ? null : mealId));
+  };
 
-    await submitItemForm();
-    setEditorDrawerMode(null);
+  const handleIngredientSubmit = async (mealId: number) => {
+    if (!ingredientDraft.label.trim()) return;
+    await submitIngredientForm(mealId);
   };
 
   // Confirmation handlers
   const handleConfirmDelete = async () => {
     switch (pendingDelete.action) {
       case 'meal':
-        if (pendingDelete.id) {
-          await removeMeal(pendingDelete.id);
-        }
+        if (pendingDelete.id) await removeMeal(pendingDelete.id);
         break;
-      case 'item':
-        if (pendingDelete.id) {
-          await removeItem(pendingDelete.id);
-        }
+      case 'ingredient':
+        if (pendingDelete.id) await removeIngredient(pendingDelete.id);
         break;
       case 'participant':
-        if (pendingDelete.name) {
-          await removeParticipant(pendingDelete.name);
-        }
+        if (pendingDelete.name) await removeParticipant(pendingDelete.name);
+        break;
+      case 'provenance':
+        if (pendingDelete.name) await removeProvenance(pendingDelete.name);
         break;
     }
     setPendingDelete({ action: null });
   };
 
-  const handleOpenDeleteMealModal = (mealId: number, mealTitle: string) => {
-    setPendingDelete({ action: 'meal', id: mealId, title: mealTitle });
-  };
+  const renderMealCard = (meal: Meal) => {
+    const isExpanded = expandedMealId === meal.id;
+    return (
+      <div className="list-item meal-card" key={meal.id}>
+        <div className="meal-card-head">
+          <div className="item-main">
+            <div className="item-title">{meal.title}</div>
+            <div className="item-meta">{meal.day} · {meal.slot} · {meal.owner}</div>
+            {meal.note && meal.note !== 'À préciser' && <div className="item-note">{meal.note}</div>}
+          </div>
+          <div className="item-actions">
+            <button
+              className="btn-icon"
+              type="button"
+              onClick={() => toggleExpanded(meal.id)}
+              title="Ingrédients"
+            >
+              {meal.ingredients.length > 0 ? `🛒 ${meal.ingredients.length}` : '🛒'}
+            </button>
+            <button className="btn-icon" type="button" onClick={() => handleMealEdit(meal.id)} title="Modifier">
+              ✎
+            </button>
+            <button
+              className="btn-icon danger"
+              type="button"
+              onClick={() => setPendingDelete({ action: 'meal', id: meal.id, title: meal.title })}
+              title="Supprimer"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
 
-  const handleOpenDeleteItemModal = (itemId: number, itemLabel: string) => {
-    setPendingDelete({ action: 'item', id: itemId, title: itemLabel });
-  };
+        {isExpanded ? (
+          <div className="ingredient-section">
+            {meal.ingredients.length === 0 ? (
+              <div className="empty-state empty-state-compact">Aucun ingrédient</div>
+            ) : (
+              <div className="ingredient-list">
+                {meal.ingredients.map((ingredient) => (
+                  <div className={ingredient.done ? 'ingredient-row done' : 'ingredient-row'} key={ingredient.id}>
+                    <input
+                      type="checkbox"
+                      checked={ingredient.done}
+                      onChange={() => void toggleIngredient(ingredient)}
+                      title="Acheté / ramené"
+                    />
+                    <span className="ingredient-label">{ingredient.label}</span>
+                    <span className="ingredient-meta">{ingredient.quantity}</span>
+                    <span className="provenance-tag">{ingredient.provenance}</span>
+                    <button
+                      className="btn-icon"
+                      type="button"
+                      onClick={() => editIngredient(ingredient)}
+                      title="Modifier"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      className="btn-icon danger"
+                      type="button"
+                      onClick={() => setPendingDelete({ action: 'ingredient', id: ingredient.id, title: ingredient.label })}
+                      title="Supprimer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
-  const handleOpenDeleteParticipantModal = (participantName: string) => {
-    setPendingDelete({ action: 'participant', name: participantName, title: participantName });
+            <div className="ingredient-form">
+              <input
+                value={ingredientDraft.label}
+                onChange={(event) => setIngredientDraft((current) => ({ ...current, label: event.target.value }))}
+                placeholder="Ingrédient"
+              />
+              <input
+                className="ingredient-qty"
+                value={ingredientDraft.quantity}
+                onChange={(event) => setIngredientDraft((current) => ({ ...current, quantity: event.target.value }))}
+                placeholder="Qté"
+              />
+              <select
+                value={ingredientDraft.provenance}
+                onChange={(event) => setIngredientDraft((current) => ({ ...current, provenance: event.target.value }))}
+                title="Provenance"
+              >
+                {ingredientProvenances.map((provenance) => (
+                  <option key={provenance} value={provenance}>
+                    {provenance}
+                  </option>
+                ))}
+              </select>
+              <button className="btn-primary" type="button" onClick={() => void handleIngredientSubmit(meal.id)}>
+                {editingIngredientId === null ? 'Ajouter' : 'Enregistrer'}
+              </button>
+              {editingIngredientId !== null ? (
+                <button className="btn-secondary" type="button" onClick={resetIngredientDraft}>
+                  Annuler
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   return (
@@ -168,48 +254,40 @@ export default function BoardPage() {
           <p className="header-subtitle">Organiser des repas & courses</p>
         </div>
         <div className="header-actions">
-          {/* <button
-            className="theme-toggle"
-            type="button"
-            onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
-          >
-            {theme === 'dark' ? 'Mode clair' : 'Mode sombre'}
-          </button> */}
           <button
-            className={showParticipantsPanel ? 'participants-cta participants-cta-active' : 'participants-cta'}
+            className={showSettingsPanel ? 'participants-cta participants-cta-active' : 'participants-cta'}
             type="button"
             onClick={() => {
-              closeEditorDrawer();
-              setShowParticipantsPanel((current) => !current);
+              closeMealDrawer();
+              setShowSettingsPanel((current) => !current);
             }}
           >
-            <span className="participants-cta-label">Configurer les participants</span>
-            <span className="participants-cta-meta">{participants.length} personnes</span>
+            <span className="participants-cta-label">Participants & provenances</span>
+            <span className="participants-cta-meta">{participants.length} pers · {provenances.length} prov.</span>
           </button>
-
         </div>
       </div>
 
-      {showParticipantsPanel || editorDrawerMode !== null ? (
+      {showSettingsPanel || showMealDrawer ? (
         <button
           className="drawer-backdrop"
           type="button"
           aria-label="Fermer les panneaux"
           onClick={() => {
-            setShowParticipantsPanel(false);
-            closeEditorDrawer();
+            setShowSettingsPanel(false);
+            closeMealDrawer();
           }}
         />
       ) : null}
 
-      <aside className={showParticipantsPanel ? 'participants-drawer participants-drawer-open' : 'participants-drawer'} aria-hidden={!showParticipantsPanel}>
+      <aside className={showSettingsPanel ? 'participants-drawer participants-drawer-open' : 'participants-drawer'} aria-hidden={!showSettingsPanel}>
         <div className="participants-drawer-panel">
           <div className="section-header section-header-compact">
             <div>
               <h2>Participants</h2>
-              <p className="section-help">Liste utilisée dans les sélecteurs repas et courses</p>
+              <p className="section-help">Utilisés dans les sélecteurs de responsable</p>
             </div>
-            <button className="btn-small" type="button" onClick={() => setShowParticipantsPanel(false)}>
+            <button className="btn-small" type="button" onClick={() => setShowSettingsPanel(false)}>
               Fermer
             </button>
           </div>
@@ -230,7 +308,38 @@ export default function BoardPage() {
               participants.map((person) => (
                 <div className="participant-pill" key={person}>
                   <span>{person}</span>
-                  <button className="btn-icon danger" type="button" onClick={() => handleOpenDeleteParticipantModal(person)} title={`Supprimer ${person}`}>
+                  <button className="btn-icon danger" type="button" onClick={() => setPendingDelete({ action: 'participant', name: person, title: person })} title={`Supprimer ${person}`}>
+                    ✕
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="section-header section-header-compact settings-divider">
+            <div>
+              <h2>Provenances</h2>
+              <p className="section-help">D'où viennent les ingrédients (grande surface, marché…)</p>
+            </div>
+          </div>
+          <div className="participant-form">
+            <input
+              value={provenanceDraft}
+              onChange={(event) => setProvenanceDraft(event.target.value)}
+              placeholder="Ajouter une provenance"
+            />
+            <button className="btn-primary" type="button" onClick={() => void submitProvenanceForm()}>
+              Ajouter
+            </button>
+          </div>
+          <div className="participant-list participant-list-panel">
+            {provenances.length === 0 ? (
+              <div className="empty-state">Aucune provenance enregistrée</div>
+            ) : (
+              provenances.map((provenance) => (
+                <div className="participant-pill" key={provenance}>
+                  <span>{provenance}</span>
+                  <button className="btn-icon danger" type="button" onClick={() => setPendingDelete({ action: 'provenance', name: provenance, title: provenance })} title={`Supprimer ${provenance}`}>
                     ✕
                   </button>
                 </div>
@@ -240,110 +349,62 @@ export default function BoardPage() {
         </div>
       </aside>
 
-      <aside className={editorDrawerMode !== null ? 'editor-drawer editor-drawer-open' : 'editor-drawer'} aria-hidden={editorDrawerMode === null}>
+      <aside className={showMealDrawer ? 'editor-drawer editor-drawer-open' : 'editor-drawer'} aria-hidden={!showMealDrawer}>
         <div className="editor-drawer-panel">
-          {editorDrawerMode === 'meal' ? (
-            <>
-              <div className="section-header section-header-compact">
-                <div>
-                  <h2>{editingMealId === null ? 'Ajouter un repas' : 'Modifier le repas'}</h2>
-                  <p className="section-help">Choisissez le créneau, le responsable et les détails utiles</p>
-                </div>
-                <button className="btn-small" type="button" onClick={closeEditorDrawer}>
-                  Fermer
-                </button>
-              </div>
-              <div className="compact-form">
-                <div className="form-row">
-                  <select value={mealDraft.day} onChange={(event) => setMealDraft((current) => ({ ...current, day: event.target.value }))} title="Jour">
-                    {mealDays.map((day) => (
-                      <option key={day} value={day}>
-                        {day}
-                      </option>
-                    ))}
-                  </select>
-                  <select value={mealDraft.slot} onChange={(event) => setMealDraft((current) => ({ ...current, slot: event.target.value as typeof mealSlots[number] }))} title="Créneau">
-                    {mealSlots.map((slot) => (
-                      <option key={slot} value={slot}>
-                        {slot}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <input
-                  value={mealDraft.title}
-                  onChange={(event) => setMealDraft((current) => ({ ...current, title: event.target.value }))}
-                  placeholder="Intitulé du repas"
-                  className="form-input-full"
-                />
-                <input
-                  value={mealDraft.note}
-                  onChange={(event) => setMealDraft((current) => ({ ...current, note: event.target.value }))}
-                  placeholder="Note optionnelle"
-                  className="form-input-full"
-                />
-                <select value={mealDraft.owner} onChange={(event) => setMealDraft((current) => ({ ...current, owner: event.target.value }))} title="Responsable">
-                  {mealOwners.map((person) => (
-                    <option key={person} value={person}>
-                      {person}
-                    </option>
-                  ))}
-                </select>
-                <div className="form-actions">
-                  <button className="btn-primary" type="button" onClick={() => void handleMealSubmit()}>
-                    {editingMealId === null ? 'Créer le repas' : 'Enregistrer'}
-                  </button>
-                  <button className="btn-secondary" type="button" onClick={closeEditorDrawer}>
-                    Annuler
-                  </button>
-                </div>
-              </div>
-            </>
-          ) : null}
-
-          {editorDrawerMode === 'item' ? (
-            <>
-              <div className="section-header section-header-compact">
-                <div>
-                  <h2>{editingItemId === null ? 'Ajouter une course' : 'Modifier la course'}</h2>
-                  <p className="section-help">Renseignez l’article, la quantité et la personne responsable</p>
-                </div>
-                <button className="btn-small" type="button" onClick={closeEditorDrawer}>
-                  Fermer
-                </button>
-              </div>
-              <div className="compact-form">
-                <input
-                  value={itemDraft.label}
-                  onChange={(event) => setItemDraft((current) => ({ ...current, label: event.target.value }))}
-                  placeholder="Article"
-                  className="form-input-full"
-                />
-                <div className="form-row">
-                  <input
-                    value={itemDraft.quantity}
-                    onChange={(event) => setItemDraft((current) => ({ ...current, quantity: event.target.value }))}
-                    placeholder="Quantité"
-                  />
-                  <select value={itemDraft.assignedTo} onChange={(event) => setItemDraft((current) => ({ ...current, assignedTo: event.target.value }))} title="Responsable">
-                    {itemAssignees.map((person) => (
-                      <option key={person} value={person}>
-                        {person}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-actions">
-                  <button className="btn-primary" type="button" onClick={() => void handleItemSubmit()}>
-                    {editingItemId === null ? 'Créer l’article' : 'Enregistrer'}
-                  </button>
-                  <button className="btn-secondary" type="button" onClick={closeEditorDrawer}>
-                    Annuler
-                  </button>
-                </div>
-              </div>
-            </>
-          ) : null}
+          <div className="section-header section-header-compact">
+            <div>
+              <h2>{editingMealId === null ? 'Ajouter un repas' : 'Modifier le repas'}</h2>
+              <p className="section-help">Choisissez le jour (ou le séjour entier), le créneau et le responsable</p>
+            </div>
+            <button className="btn-small" type="button" onClick={closeMealDrawer}>
+              Fermer
+            </button>
+          </div>
+          <div className="compact-form">
+            <div className="form-row">
+              <select value={mealDraft.day} onChange={(event) => setMealDraft((current) => ({ ...current, day: event.target.value }))} title="Jour">
+                {mealDayOptions.map((day) => (
+                  <option key={day} value={day}>
+                    {day}
+                  </option>
+                ))}
+              </select>
+              <select value={mealDraft.slot} onChange={(event) => setMealDraft((current) => ({ ...current, slot: event.target.value as typeof mealSlots[number] }))} title="Créneau">
+                {mealSlots.map((slot) => (
+                  <option key={slot} value={slot}>
+                    {slot}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <input
+              value={mealDraft.title}
+              onChange={(event) => setMealDraft((current) => ({ ...current, title: event.target.value }))}
+              placeholder="Intitulé du repas"
+              className="form-input-full"
+            />
+            <input
+              value={mealDraft.note}
+              onChange={(event) => setMealDraft((current) => ({ ...current, note: event.target.value }))}
+              placeholder="Note optionnelle"
+              className="form-input-full"
+            />
+            <select value={mealDraft.owner} onChange={(event) => setMealDraft((current) => ({ ...current, owner: event.target.value }))} title="Responsable">
+              {mealOwners.map((person) => (
+                <option key={person} value={person}>
+                  {person}
+                </option>
+              ))}
+            </select>
+            <div className="form-actions">
+              <button className="btn-primary" type="button" onClick={() => void handleMealSubmit()}>
+                {editingMealId === null ? 'Créer le repas' : 'Enregistrer'}
+              </button>
+              <button className="btn-secondary" type="button" onClick={closeMealDrawer}>
+                Annuler
+              </button>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -368,6 +429,13 @@ export default function BoardPage() {
             </button>
           </div>
 
+          {stayMeals.length > 0 ? (
+            <div className="stay-meals">
+              <div className="stay-meals-label">Pour tout le séjour</div>
+              {stayMeals.map((meal) => renderMealCard(meal))}
+            </div>
+          ) : null}
+
           <div className="day-filter">
             {['Tous', ...mealDays].map((day) => (
               <button
@@ -386,60 +454,49 @@ export default function BoardPage() {
             ) : visibleMeals.length === 0 ? (
               <div className="empty-state">Aucun repas</div>
             ) : (
-              visibleMeals.map((meal) => (
-                <div className="list-item" key={meal.id}>
-                  <div className="item-main">
-                    <div className="item-title">{meal.title}</div>
-                    <div className="item-meta">{meal.day} · {meal.slot} · {meal.owner}</div>
-                    {meal.note && meal.note !== 'À préciser' && <div className="item-note">{meal.note}</div>}
-                  </div>
-                  <div className="item-actions">
-                    <button className="btn-icon" type="button" onClick={() => handleMealEdit(meal.id)} title="Modifier">
-                      ✎
-                    </button>
-                    <button className="btn-icon danger" type="button" onClick={() => handleOpenDeleteMealModal(meal.id, meal.title)} title="Supprimer">
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ))
+              visibleMeals.map((meal) => renderMealCard(meal))
             )}
           </div>
         </article>
 
         <div className="side-column">
           <article className="panel section-items">
-          <div className="section-header">
-            <h2>Courses</h2>
-            <button className="btn-toggle" type="button" onClick={openItemDrawer}>
-              + Ajouter
-            </button>
-          </div>
+            <div className="section-header">
+              <h2>Courses</h2>
+              <span className="section-help">Agrégées par provenance</span>
+            </div>
 
-          <div className="items-list">
-            {loading ? (
-              <div className="empty-state">Chargement…</div>
-            ) : items.length === 0 ? (
-              <div className="empty-state">Aucun article</div>
-            ) : (
-              items.map((item) => (
-                <div className="list-item" key={item.id}>
-                  <div className="item-main">
-                    <div className="item-title">{item.label}</div>
-                    <div className="item-meta">{item.quantity} · {item.assignedTo}</div>
+            <div className="items-list">
+              {loading ? (
+                <div className="empty-state">Chargement…</div>
+              ) : provenanceGroups.length === 0 ? (
+                <div className="empty-state">Aucun ingrédient. Ajoutez-en depuis un repas.</div>
+              ) : (
+                provenanceGroups.map((group) => (
+                  <div className="provenance-group" key={group.provenance}>
+                    <div className="provenance-group-head">
+                      <span className="provenance-group-title">{group.provenance}</span>
+                      <span className="provenance-group-count">
+                        {group.ingredients.filter((i) => i.done).length}/{group.ingredients.length}
+                      </span>
+                    </div>
+                    {group.ingredients.map((ingredient) => (
+                      <div className={ingredient.done ? 'ingredient-row done' : 'ingredient-row'} key={ingredient.id}>
+                        <input
+                          type="checkbox"
+                          checked={ingredient.done}
+                          onChange={() => void toggleIngredient(ingredient as Ingredient)}
+                          title="Acheté / ramené"
+                        />
+                        <span className="ingredient-label">{ingredient.label}</span>
+                        <span className="ingredient-meta">{ingredient.quantity}</span>
+                        <span className="ingredient-source">{ingredient.mealTitle}</span>
+                      </div>
+                    ))}
                   </div>
-                  <div className="item-actions">
-                    <button className="btn-icon" type="button" onClick={() => handleItemEdit(item.id)} title="Modifier">
-                      ✎
-                    </button>
-                    <button className="btn-icon danger" type="button" onClick={() => handleOpenDeleteItemModal(item.id, item.label)} title="Supprimer">
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+                ))
+              )}
+            </div>
           </article>
         </div>
       </section>
@@ -448,16 +505,12 @@ export default function BoardPage() {
         isOpen={pendingDelete.action !== null}
         title={
           pendingDelete.action === 'meal' ? 'Supprimer le repas ?' :
-          pendingDelete.action === 'item' ? 'Supprimer la course ?' :
+          pendingDelete.action === 'ingredient' ? 'Supprimer l’ingrédient ?' :
           pendingDelete.action === 'participant' ? 'Supprimer le participant ?' :
+          pendingDelete.action === 'provenance' ? 'Supprimer la provenance ?' :
           'Confirmer'
         }
-        message={
-          pendingDelete.action === 'meal' ? `Êtes-vous sûr de vouloir supprimer "${pendingDelete.title}" ? Cette action ne peut pas être annulée.` :
-          pendingDelete.action === 'item' ? `Êtes-vous sûr de vouloir supprimer "${pendingDelete.title}" ? Cette action ne peut pas être annulée.` :
-          pendingDelete.action === 'participant' ? `Êtes-vous sûr de vouloir supprimer ${pendingDelete.title} ? Cette action ne peut pas être annulée.` :
-          ''
-        }
+        message={`Êtes-vous sûr de vouloir supprimer "${pendingDelete.title}" ? Cette action ne peut pas être annulée.`}
         confirmText="Oui, supprimer"
         cancelText="Annuler"
         isDangerous

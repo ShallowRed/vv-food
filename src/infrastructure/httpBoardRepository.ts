@@ -1,6 +1,6 @@
 import {
   type BoardState,
-  type GroceryItemInput,
+  type IngredientInput,
   type MealInput,
 } from '../domain/board';
 
@@ -26,52 +26,61 @@ async function requestJson<T>(path: string, init?: RequestInit, baseUrl = '/api'
 }
 
 export function createHttpBoardRepository(baseUrl = '/api') {
+  const state = () => requestJson<BoardState>('/state', undefined, baseUrl);
+
   return {
     loadState() {
-      return requestJson<BoardState>('/state', undefined, baseUrl);
+      return state();
     },
     async createMeal(input: MealInput) {
       await requestJson('/meals', {
         method: 'POST',
         body: JSON.stringify(input),
       }, baseUrl);
-      return requestJson<BoardState>('/state', undefined, baseUrl);
+      return state();
     },
     async updateMeal(id: number, input: MealInput) {
       await requestJson(`/meals/${id}`, {
         method: 'PUT',
         body: JSON.stringify(input),
       }, baseUrl);
-      return requestJson<BoardState>('/state', undefined, baseUrl);
+      return state();
     },
     async deleteMeal(id: number) {
       await requestJson(`/meals/${id}`, { method: 'DELETE' }, baseUrl);
-      return requestJson<BoardState>('/state', undefined, baseUrl);
+      return state();
     },
-    async createItem(input: GroceryItemInput) {
-      await requestJson('/items', {
+    async createIngredient(mealId: number, input: IngredientInput) {
+      await requestJson(`/meals/${mealId}/ingredients`, {
         method: 'POST',
         body: JSON.stringify(input),
       }, baseUrl);
-      return requestJson<BoardState>('/state', undefined, baseUrl);
+      return state();
     },
-    async updateItem(id: number, input: GroceryItemInput) {
-      await requestJson(`/items/${id}`, {
+    async updateIngredient(id: number, input: IngredientInput) {
+      await requestJson(`/ingredients/${id}`, {
         method: 'PUT',
         body: JSON.stringify(input),
       }, baseUrl);
-      return requestJson<BoardState>('/state', undefined, baseUrl);
+      return state();
     },
-    async deleteItem(id: number) {
-      await requestJson(`/items/${id}`, { method: 'DELETE' }, baseUrl);
-      return requestJson<BoardState>('/state', undefined, baseUrl);
+    async deleteIngredient(id: number) {
+      await requestJson(`/ingredients/${id}`, { method: 'DELETE' }, baseUrl);
+      return state();
     },
     async saveParticipants(participants: string[]) {
       await requestJson('/participants', {
         method: 'PUT',
         body: JSON.stringify(participants),
       }, baseUrl);
-      return requestJson<BoardState>('/state', undefined, baseUrl);
+      return state();
+    },
+    async saveProvenances(provenances: string[]) {
+      await requestJson('/provenances', {
+        method: 'PUT',
+        body: JSON.stringify(provenances),
+      }, baseUrl);
+      return state();
     },
   };
 }
