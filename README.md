@@ -71,6 +71,11 @@ make migrate-db DB=prod-snapshot/foude.sqlite
 
 (voir plus haut — `make backup-db`, `make backup-list`, `make backup-install-cron`.)
 
+## Déploiement & infrastructure
+
+Toutes les coordonnées prod (hôte SSH, chemins, conteneur, reverse proxy) et les commandes
+de déploiement / rollback sont dans **[DEPLOY.md](DEPLOY.md)**. En bref : `make deploy`.
+
 ## Déploiement VPS simple
 
 La version la plus sobre consiste à lancer un seul conteneur Node sur un VPS, avec la base SQLite persistée dans `./data`.

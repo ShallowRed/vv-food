@@ -2,8 +2,14 @@ SHELL := /bin/bash
 
 BACKUP_KEEP ?= 10
 
+# === Coordonnées prod (voir DEPLOY.md) ===
+VPS_HOST ?= vps.lucaspoulain.com
+VPS_DIR ?= /root/foude
+PROD_URL ?= https://foude.lucaspoulain.com
+
 .PHONY: help install dev build start preview clean docker-build docker-up docker-down docker-logs reset-db test
 .PHONY: backup-db backup-list backup-install-cron backup-uninstall-cron migrate-db migrate-db-dry
+.PHONY: deploy prod-health prod-logs prod-backup prod-pull-db
 
 help:
 	@printf "Foude commands\n"
@@ -23,6 +29,12 @@ help:
 	@printf "  make backup-uninstall-cron Remove the installed backup cron\n"
 	@printf "  make migrate-db [DB=path]      Migrate a SQLite base to the ingredients model\n"
 	@printf "  make migrate-db-dry [DB=path]  Dry-run the migration (no write)\n"
+	@printf "\nProd (voir DEPLOY.md)\n"
+	@printf "  make deploy        Pull --ff-only + rebuild sur le VPS\n"
+	@printf "  make prod-health   Vérifie /api/health en prod\n"
+	@printf "  make prod-logs     Suit les logs du conteneur prod\n"
+	@printf "  make prod-backup   Backup horodaté de la base prod\n"
+	@printf "  make prod-pull-db  Rapatrie la base prod vers prod-snapshot/\n"
 
 install:
 	npm install
@@ -85,3 +97,22 @@ migrate-db:
 
 migrate-db-dry:
 	node scripts/migrate-to-ingredients.mjs $(DB) --dry-run
+
+# === Prod (voir DEPLOY.md) ===
+
+deploy:
+	ssh $(VPS_HOST) 'cd $(VPS_DIR) && git pull --ff-only origin main && docker compose up -d --build'
+
+prod-health:
+	@curl -fsS $(PROD_URL)/api/health && echo "" || echo "Health KO"
+
+prod-logs:
+	ssh $(VPS_HOST) 'cd $(VPS_DIR) && docker compose logs -f --tail 50'
+
+prod-backup:
+	ssh $(VPS_HOST) 'cd $(VPS_DIR) && mkdir -p backups/db && cp data/foude.sqlite backups/db/foude-manual-$$(date +%Y%m%d-%H%M%S).sqlite && ls -la backups/db/ | tail -3'
+
+prod-pull-db:
+	@mkdir -p prod-snapshot
+	scp $(VPS_HOST):$(VPS_DIR)/data/foude.sqlite prod-snapshot/foude.sqlite
+	@echo "Base prod rapatriée: prod-snapshot/foude.sqlite"
