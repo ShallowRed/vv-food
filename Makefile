@@ -3,7 +3,7 @@ SHELL := /bin/bash
 BACKUP_KEEP ?= 10
 
 .PHONY: help install dev build start preview clean docker-build docker-up docker-down docker-logs reset-db
-.PHONY: backup-db backup-list backup-install-cron backup-uninstall-cron
+.PHONY: backup-db backup-list backup-install-cron backup-uninstall-cron migrate-db migrate-db-dry
 
 help:
 	@printf "Foude commands\n"
@@ -20,6 +20,8 @@ help:
 	@printf "  make backup-list  List available backups\n"
 	@printf "  make backup-install-cron  Install a backup every 5 minutes (keep $(BACKUP_KEEP))\n"
 	@printf "  make backup-uninstall-cron Remove the installed backup cron\n"
+	@printf "  make migrate-db [DB=path]      Migrate a SQLite base to the ingredients model\n"
+	@printf "  make migrate-db-dry [DB=path]  Dry-run the migration (no write)\n"
 
 install:
 	npm install
@@ -69,3 +71,13 @@ backup-install-cron:
 backup-uninstall-cron:
 	@(TMPFILE=$$(mktemp) && crontab -l 2>/dev/null | grep -Fv "./scripts/backup-db.sh" > $$TMPFILE && crontab $$TMPFILE && rm -f $$TMPFILE)
 	@echo "Cron backup supprimé"
+
+# Migration vers le modèle ingrédients/provenances.
+# DB par défaut: la base locale. Override: make migrate-db DB=prod-snapshot/foude.sqlite
+DB ?= data/foude.sqlite
+
+migrate-db:
+	node scripts/migrate-to-ingredients.mjs $(DB)
+
+migrate-db-dry:
+	node scripts/migrate-to-ingredients.mjs $(DB) --dry-run
