@@ -90,6 +90,19 @@ export function useBoardController() {
     [state.meals, state.provenances],
   );
 
+  // Total d'ingrédients et nombre restant à acheter (toutes provenances).
+  const coursesSummary = useMemo(() => {
+    let total = 0;
+    let done = 0;
+    state.meals.forEach((meal) => {
+      meal.ingredients.forEach((ingredient) => {
+        total += 1;
+        if (ingredient.done) done += 1;
+      });
+    });
+    return { total, done, remaining: total - done };
+  }, [state.meals]);
+
   const resetMealDraft = () => {
     setMealDraft(createEmptyMealDraft(state.participants));
     setEditingMealId(null);
@@ -222,6 +235,7 @@ export function useBoardController() {
     stayMeals,
     visibleMeals,
     provenanceGroups,
+    coursesSummary,
     setMealDraft,
     setIngredientDraft,
     setParticipantDraft,

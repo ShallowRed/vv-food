@@ -979,3 +979,27 @@ h2 {
   padding-top: 18px;
   border-top: 1px solid var(--surface-border);
 }
+
+.courses-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* Titres longs / emojis : éviter les débordements horizontaux */
+.item-title,
+.ingredient-label,
+.provenance-group-title {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ingredient-source {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -32,6 +32,7 @@ export default function BoardPage() {
     stayMeals,
     visibleMeals,
     provenanceGroups,
+    coursesSummary,
     setMealDraft,
     setIngredientDraft,
     setParticipantDraft,
@@ -57,6 +58,8 @@ export default function BoardPage() {
   const [showMealDrawer, setShowMealDrawer] = useState(false);
   // Repas dont la sous-liste d'ingrédients est dépliée.
   const [expandedMealId, setExpandedMealId] = useState<number | null>(null);
+  // Masquer les ingrédients déjà achetés/ramenés dans la vue courses.
+  const [hideBought, setHideBought] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window === 'undefined') {
       return 'dark';
@@ -463,8 +466,27 @@ export default function BoardPage() {
           <article className="panel section-items">
             <div className="section-header">
               <h2>Courses</h2>
-              <span className="section-help">Agrégées par provenance</span>
+              {coursesSummary.total > 0 ? (
+                <span className="section-help">
+                  {coursesSummary.remaining === 0
+                    ? 'Tout est prêt 🎉'
+                    : `${coursesSummary.remaining} restant${coursesSummary.remaining > 1 ? 's' : ''} sur ${coursesSummary.total}`}
+                </span>
+              ) : (
+                <span className="section-help">Agrégées par provenance</span>
+              )}
             </div>
+
+            {coursesSummary.done > 0 ? (
+              <label className="courses-toggle">
+                <input
+                  type="checkbox"
+                  checked={hideBought}
+                  onChange={(event) => setHideBought(event.target.checked)}
+                />
+                Masquer les achetés
+              </label>
+            ) : null}
 
             <div className="items-list">
               {loading ? (
@@ -472,29 +494,42 @@ export default function BoardPage() {
               ) : provenanceGroups.length === 0 ? (
                 <div className="empty-state">Aucun ingrédient. Ajoutez-en depuis un repas.</div>
               ) : (
-                provenanceGroups.map((group) => (
-                  <div className="provenance-group" key={group.provenance}>
-                    <div className="provenance-group-head">
-                      <span className="provenance-group-title">{group.provenance}</span>
-                      <span className="provenance-group-count">
-                        {group.ingredients.filter((i) => i.done).length}/{group.ingredients.length}
-                      </span>
-                    </div>
-                    {group.ingredients.map((ingredient) => (
-                      <div className={ingredient.done ? 'ingredient-row done' : 'ingredient-row'} key={ingredient.id}>
-                        <input
-                          type="checkbox"
-                          checked={ingredient.done}
-                          onChange={() => void toggleIngredient(ingredient as Ingredient)}
-                          title="Acheté / ramené"
-                        />
-                        <span className="ingredient-label">{ingredient.label}</span>
-                        <span className="ingredient-meta">{ingredient.quantity}</span>
-                        <span className="ingredient-source">{ingredient.mealTitle}</span>
+                (() => {
+                  const groups = provenanceGroups
+                    .map((group) => ({
+                      ...group,
+                      ingredients: hideBought ? group.ingredients.filter((i) => !i.done) : group.ingredients,
+                    }))
+                    .filter((group) => group.ingredients.length > 0);
+
+                  if (groups.length === 0) {
+                    return <div className="empty-state">Tout est acheté 🎉</div>;
+                  }
+
+                  return groups.map((group) => (
+                    <div className="provenance-group" key={group.provenance}>
+                      <div className="provenance-group-head">
+                        <span className="provenance-group-title">{group.provenance}</span>
+                        <span className="provenance-group-count">
+                          {group.ingredients.filter((i) => i.done).length}/{group.ingredients.length}
+                        </span>
                       </div>
-                    ))}
-                  </div>
-                ))
+                      {group.ingredients.map((ingredient) => (
+                        <div className={ingredient.done ? 'ingredient-row done' : 'ingredient-row'} key={ingredient.id}>
+                          <input
+                            type="checkbox"
+                            checked={ingredient.done}
+                            onChange={() => void toggleIngredient(ingredient as Ingredient)}
+                            title="Acheté / ramené"
+                          />
+                          <span className="ingredient-label">{ingredient.label}</span>
+                          <span className="ingredient-meta">{ingredient.quantity}</span>
+                          <span className="ingredient-source">{ingredient.mealTitle}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ));
+                })()
               )}
             </div>
           </article>

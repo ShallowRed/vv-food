@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 BACKUP_KEEP ?= 10
 
-.PHONY: help install dev build start preview clean docker-build docker-up docker-down docker-logs reset-db
+.PHONY: help install dev build start preview clean docker-build docker-up docker-down docker-logs reset-db test
 .PHONY: backup-db backup-list backup-install-cron backup-uninstall-cron migrate-db migrate-db-dry
 
 help:
@@ -10,6 +10,7 @@ help:
 	@printf "  make install      Install dependencies\n"
 	@printf "  make dev          Start frontend + API in dev\n"
 	@printf "  make build        Build production assets\n"
+	@printf "  make test         Run the test suite\n"
 	@printf "  make start        Start the production server\n"
 	@printf "  make preview      Preview the built frontend\n"
 	@printf "  make docker-up    Start the Docker stack\n"
@@ -31,6 +32,9 @@ dev:
 
 build:
 	npm run build
+
+test:
+	npm test
 
 start:
 	npm run start
